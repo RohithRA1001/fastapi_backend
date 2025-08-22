@@ -1,32 +1,45 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 import joblib
+import os
+from pydantic import BaseModel
 
-# Create FastAPI app
+# -------------------------------
+# Define Input Data Schema
+# -------------------------------
+class InputData(BaseModel):
+    features: list[float]  # list of numbers
+
+# -------------------------------
+# Load Model (from relative path)
+# -------------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, "dummy_model.pkl")
+
 app = FastAPI()
 
-# Full path to your dummy model
-MODEL_PATH = r"c:\Users\rohit\Documents\Cognizant\backend\dummy_model.pkl"
-
-# Load the model
 try:
     model = joblib.load(MODEL_PATH)
-    print(f"Model loaded successfully from {MODEL_PATH}")
+    print(f"✅ Model loaded successfully from {MODEL_PATH}")
 except Exception as e:
-    print(f"Error loading model: {e}")
+    print(f"❌ Error loading model: {e}")
     model = None
 
+
+# -------------------------------
+# Routes
+# -------------------------------
 @app.get("/")
 def home():
-    return {"message": "Backend is running!"}
+    return {"message": "FastAPI backend is running!"}
+
 
 @app.post("/predict")
-def predict(data: dict):
-    if not model:
-        return {"error": "Model not loaded"}
-    
+def predict(data: InputData):
+    if model is None:
+        raise HTTPException(status_code=500, detail="Model not loaded")
+
     try:
-        features = data.get("features")
-        prediction = model.predict([features])[0]
-        return {"prediction": int(prediction)}
+        prediction = model.predict([data.features])
+        return {"prediction": int(prediction[0])}
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=400, detail=str(e))
