@@ -1,18 +1,21 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 import joblib
 import os
 
 # -------------------------------
-# Define Input Schema
+# Define Input Schemas
 # -------------------------------
-class InputData(BaseModel):
+class InputData(BaseModel):  # Format A
     device: str
     classification: str
     manufacturer: str
     country: str
     implanted: str
+
+class FeatureInput(BaseModel):  # Format B
+    features: list[int]
 
 
 # -------------------------------
@@ -23,10 +26,12 @@ MODEL_PATH = os.path.join(BASE_DIR, "weakened_ensemble_model.pkl")
 
 app = FastAPI()
 
-# ✅ Enable CORS (important for frontend -> backend communication)
+# -------------------------------
+# Enable CORS
+# -------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # or replace "*" with ["https://your-frontend-domain.com"]
+    allow_origins=["*"],  # for now allow all (change later for security)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -49,31 +54,46 @@ def home():
 
 
 @app.post("/predict")
-def predict(data: InputData):
+def predict(data: dict):
     if model is None:
         raise HTTPException(status_code=500, detail="Model not loaded")
 
     try:
-        # Example encodings (adjust to match your preprocessing pipeline)
-        classification_map = {"Class I": 1, "Class II": 2, "Class III": 3}
-        country_map = {"USA": 1, "India": 2, "Germany": 3, "Japan": 4}
-        implanted_map = {"yes": 1, "no": 0}
+        features = []
 
-        # Convert input into numerical features
-        features = [
-            classification_map.get(data.classification, 0),
-            country_map.get(data.country, 0),
-            implanted_map.get(data.implanted, 0),
-            len(data.manufacturer),  # simple encoding for manufacturer
-            len(data.device)         # simple encoding for device name
-        ]
+        # -------------------------------
+        # Case 1: Raw features array
+        # -------------------------------
+        if "features" in data:
+            features = data["features"]
 
+        # -------------------------------
+        # Case 2: Structured input
+        # -------------------------------
+        else:
+            input_data = InputData(**data)
+
+            classification_map = {"Class I": 1, "Class II": 2, "Class III": 3}
+            country_map = {"USA": 1, "India": 2, "Germany": 3, "Japan": 4}
+            implanted_map = {"yes": 1, "no": 0}
+
+            features = [
+                classification_map.get(input_data.classification, 0),
+                country_map.get(input_data.country, 0),
+                implanted_map.get(input_data.implanted, 0),
+                len(input_data.manufacturer),
+                len(input_data.device),
+            ]
+
+        # -------------------------------
+        # Prediction
+        # -------------------------------
         prediction = model.predict([features])
 
         return {
-            "input": data.dict(),
+            "input": data,
             "features_used": features,
-            "prediction": int(prediction[0])
+            "prediction": int(prediction[0]),
         }
 
     except Exception as e:
