@@ -3,6 +3,8 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import joblib
 import os
+import pandas as pd
+import numpy as np
 
 # -------------------------------
 # Define Input Schemas
@@ -86,9 +88,16 @@ def predict(data: dict):
             ]
 
         # -------------------------------
-        # Prediction
+        # Prediction (fix for sklearn warning)
         # -------------------------------
-        prediction = model.predict([features])
+        prediction = None
+        feature_names = ["classification", "country", "implanted", "manufacturer_len", "device_len"]
+
+        if len(features) == 5:
+            input_df = pd.DataFrame([features], columns=feature_names)
+            prediction = model.predict(input_df)
+        else:
+            prediction = model.predict(np.array([features]))
 
         return {
             "input": data,
