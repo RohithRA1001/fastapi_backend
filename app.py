@@ -1,50 +1,66 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-import joblib
 import os
+import pickle
 import pandas as pd
-import numpy as np
 
 # -------------------------------
-# Define Input Schemas
+# Define Input Schema
 # -------------------------------
-class InputData(BaseModel):  # Format A
-    device: str
+class InputData(BaseModel):
     classification: str
-    manufacturer: str
-    country: str
+    code: str
     implanted: str
-
-class FeatureInput(BaseModel):  # Format B
-    features: list[int]
+    name_device: str
+    name_manufacturer: str
 
 
 # -------------------------------
-# Load Model
+# Load Model & Encoders
 # -------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, "weakened_ensemble_model.pkl")
+MODEL_PATH = os.path.join(BASE_DIR, "xgb_model.pkl")
+ENCODERS_PATH = os.path.join(BASE_DIR, "label_encoders.pkl")
 
 app = FastAPI()
 
-# -------------------------------
 # Enable CORS
-# -------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # for now allow all (change later for security)
+    allow_origins=["*"],  # allow all for now
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 try:
-    model = joblib.load(MODEL_PATH)
-    print(f"✅ Model loaded successfully from {MODEL_PATH}")
+    with open(MODEL_PATH, "rb") as f:
+        model = pickle.load(f)
+    with open(ENCODERS_PATH, "rb") as f:
+        label_encoders = pickle.load(f)
+    print("✅ Model and encoders loaded successfully")
 except Exception as e:
-    print(f"❌ Error loading model: {e}")
-    model = None
+    print(f"❌ Error loading model/encoders: {e}")
+    model, label_encoders = None, None
+
+
+# -------------------------------
+# Helper: Encode Input
+# -------------------------------
+def encode_input(data: InputData):
+    row = {}
+    for col, val in data.dict().items():
+        if col in label_encoders:
+            le = label_encoders[col]
+            if val in le.classes_:
+                row[col] = int(le.transform([val])[0])
+            else:
+                # unseen category → fallback to most common
+                row[col] = int(pd.Series(le.transform(le.classes_)).mode()[0])
+        else:
+            row[col] = val
+    return pd.DataFrame([row])
 
 
 # -------------------------------
@@ -56,53 +72,33 @@ def home():
 
 
 @app.post("/predict")
-def predict(data: dict):
+def predict(data: InputData):
     if model is None:
         raise HTTPException(status_code=500, detail="Model not loaded")
 
     try:
-        features = []
+        # Encode input
+        input_df = encode_input(data)
 
-        # -------------------------------
-        # Case 1: Raw features array
-        # -------------------------------
-        if "features" in data:
-            features = data["features"]
+        # Predict
+        pred_class = model.predict(input_df)[0]
+        pred_probs = model.predict_proba(input_df)[0]
 
-        # -------------------------------
-        # Case 2: Structured input
-        # -------------------------------
-        else:
-            input_data = InputData(**data)
-
-            classification_map = {"Class I": 1, "Class II": 2, "Class III": 3}
-            country_map = {"USA": 1, "India": 2, "Germany": 3, "Japan": 4}
-            implanted_map = {"yes": 1, "no": 0}
-
-            features = [
-                classification_map.get(input_data.classification, 0),
-                country_map.get(input_data.country, 0),
-                implanted_map.get(input_data.implanted, 0),
-                len(input_data.manufacturer),
-                len(input_data.device),
-            ]
-
-        # -------------------------------
-        # Prediction (fix for sklearn warning)
-        # -------------------------------
-        prediction = None
-        feature_names = ["classification", "country", "implanted", "manufacturer_len", "device_len"]
-
-        if len(features) == 5:
-            input_df = pd.DataFrame([features], columns=feature_names)
-            prediction = model.predict(input_df)
-        else:
-            prediction = model.predict(np.array([features]))
+        # Decode target if categorical
+        target_name = pred_class
+        if model.classes_ is not None and isinstance(pred_class, (int, float)):
+            try:
+                le = label_encoders.get("action_classification")  # your target col name
+                if le:
+                    target_name = le.inverse_transform([int(pred_class)])[0]
+            except Exception:
+                pass
 
         return {
-            "input": data,
-            "features_used": features,
-            "prediction": int(prediction[0]),
+            "input": data.dict(),
+            "prediction_class": str(target_name),
+            "prediction_id": int(pred_class),
+            "class_probabilities": {str(cls): float(p) for cls, p in zip(model.classes_, pred_probs)}
         }
 
     except Exception as e:
