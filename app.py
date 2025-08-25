@@ -2,6 +2,8 @@ from fastapi import FastAPI, HTTPException
 import joblib
 import os
 from pydantic import BaseModel
+import pickle
+import numpy as np
 
 # -------------------------------
 # Define Input Data Schema
