@@ -6,7 +6,7 @@ import pickle
 import pandas as pd
 
 # -------------------------------
-# Define Input Schema (must match your training INPUT_FIELDS)
+# Input Schema (matches your training INPUT_FIELDS)
 # -------------------------------
 class InputData(BaseModel):
     classification: str
@@ -14,7 +14,7 @@ class InputData(BaseModel):
     implanted: str
     name_device: str
     name_manufacturer: str
-
+    country: str
 
 # -------------------------------
 # Load Model & Encoders
@@ -25,10 +25,10 @@ ENCODERS_PATH = os.path.join(BASE_DIR, "label_encoders.pkl")
 
 app = FastAPI()
 
-# Enable CORS (for frontend integration)
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # for now allow all
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -39,11 +39,10 @@ try:
         model = pickle.load(f)
     with open(ENCODERS_PATH, "rb") as f:
         label_encoders = pickle.load(f)
-    print("Model and encoders loaded successfully.")
+    print("✅ Model and encoders loaded successfully.")
 except Exception as e:
-    print(f"Error loading model/encoders: {e}")
+    print(f"❌ Error loading model/encoders: {e}")
     model, label_encoders = None, None
-
 
 # -------------------------------
 # Helper: Encode Input Row
@@ -62,7 +61,6 @@ def encode_input(data: InputData):
             row[col] = val
     return pd.DataFrame([row])
 
-
 # -------------------------------
 # Routes
 # -------------------------------
@@ -70,32 +68,33 @@ def encode_input(data: InputData):
 def home():
     return {"message": "FastAPI backend is running!"}
 
-
 @app.post("/predict")
 def predict(data: InputData):
     if model is None:
         raise HTTPException(status_code=500, detail="Model not loaded")
-
+    
     try:
-        # Encode input
+        # 1️⃣ Encode input row
         input_df = encode_input(data)
 
-        # Predict
+        # 2️⃣ Predict
         pred_class = model.predict(input_df)[0]
         pred_probs = model.predict_proba(input_df)[0]
 
-        # Decode prediction if target was label-encoded
-        target_name = pred_class
-        target_encoder = label_encoders.get("action_classification")  # adjust if target name different
+        # 3️⃣ Decode class name if label-encoded
+        target_encoder = label_encoders.get("action_classification")  # change if your target name differs
         if target_encoder:
             try:
-                target_name = target_encoder.inverse_transform([int(pred_class)])[0]
+                pred_class_name = target_encoder.inverse_transform([int(pred_class)])[0]
             except Exception:
-                pass
+                pred_class_name = str(pred_class)
+        else:
+            pred_class_name = str(pred_class)
 
+        # 4️⃣ Return response
         return {
             "input": data.dict(),
-            "prediction_class": str(target_name),
+            "prediction_class": pred_class_name,
             "prediction_id": int(pred_class),
             "class_probabilities": {
                 str(cls): float(p) for cls, p in zip(model.classes_, pred_probs)
