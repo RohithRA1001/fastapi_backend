@@ -1,18 +1,21 @@
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 import joblib
 import os
-from pydantic import BaseModel
-import pickle
-import numpy as np
 
 # -------------------------------
-# Define Input Data Schema
+# Define Input Schema
 # -------------------------------
 class InputData(BaseModel):
-    features: list[float]  # list of numbers
+    device: str
+    classification: str
+    manufacturer: str
+    country: str
+    implanted: str
+
 
 # -------------------------------
-# Load Model (from relative path)
+# Load Model
 # -------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "weakened_ensemble_model.pkl")
@@ -41,7 +44,27 @@ def predict(data: InputData):
         raise HTTPException(status_code=500, detail="Model not loaded")
 
     try:
-        prediction = model.predict([data.features])
-        return {"prediction": int(prediction[0])}
+        # Example encodings (adjust to match your preprocessing pipeline)
+        classification_map = {"Class I": 1, "Class II": 2, "Class III": 3}
+        country_map = {"USA": 1, "India": 2, "Germany": 3, "Japan": 4}
+        implanted_map = {"yes": 1, "no": 0}
+
+        # Convert input into numerical features
+        features = [
+            classification_map.get(data.classification, 0),
+            country_map.get(data.country, 0),
+            implanted_map.get(data.implanted, 0),
+            len(data.manufacturer),  # simple encoding for manufacturer
+            len(data.device)         # simple encoding for device name
+        ]
+
+        prediction = model.predict([features])
+
+        return {
+            "input": data.dict(),
+            "features_used": features,
+            "prediction": int(prediction[0])
+        }
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
