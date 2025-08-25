@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import joblib
 import os
@@ -21,6 +22,15 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "weakened_ensemble_model.pkl")
 
 app = FastAPI()
+
+# ✅ Enable CORS (important for frontend -> backend communication)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # or replace "*" with ["https://your-frontend-domain.com"]
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 try:
     model = joblib.load(MODEL_PATH)
