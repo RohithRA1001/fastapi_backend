@@ -13,7 +13,7 @@ class InputData(BaseModel):
 # Load Model (from relative path)
 # -------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, "dummy_model.pkl")
+MODEL_PATH = os.path.join(BASE_DIR, "weakened_ensemble_model.pkl")
 
 app = FastAPI()
 
